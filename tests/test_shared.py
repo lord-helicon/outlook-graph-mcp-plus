@@ -98,3 +98,16 @@ def test_list_mailboxes(fake):
 
 def test_tasks_stay_on_own_mailbox(fake):
     assert "mailbox" not in tasks.list_tasks.__signature__.parameters
+
+
+def test_exchange_internal_address_hidden():
+    from outlook_graph_mcp.tools.common import address
+
+    x500 = {
+        "emailAddress": {
+            "address": "/O=EXCHANGELABS/OU=X/CN=RECIPIENTS/CN=AB-DOMAINS",
+            "name": "Domains",
+        }
+    }
+    assert address(x500) == ("", "Domains")
+    assert address({"emailAddress": {"address": "a@b.com", "name": "A"}}) == ("a@b.com", "A")

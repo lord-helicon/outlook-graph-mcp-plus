@@ -1,6 +1,12 @@
 # Changelog
 
-## 0.2.0 — unreleased
+## Unreleased
+
+### Fixed
+- Exchange-internal X.500 sender addresses (`/O=EXCHANGELABS/...`, seen in a shared mailbox's
+  own Sent Items) are no longer returned as `sender`; the display name is kept.
+
+## 0.2.0 — 2026-11-16
 
 ### Added
 - **Shared mailboxes.** Mail and calendar tools take an optional `mailbox` parameter. Only
@@ -12,8 +18,8 @@
 - Clear error when an address isn't a mailbox (`ErrorInvalidUser`).
 
 Tested live with a shared mailbox: reading (folders, inbox, read, search), drafts, read state,
-moving, and an event in the shared calendar. Sending from a shared mailbox (Send As) was not
-tested live.
+moving, an event in the shared calendar, and sending from the shared mailbox (Send As: the mail
+arrived from the shared address, with a copy in its Sent Items).
 
 ## 0.1.1 — 2026-11-16
 
