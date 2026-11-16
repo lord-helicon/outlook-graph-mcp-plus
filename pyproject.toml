@@ -1,6 +1,6 @@
 [project]
 name = "outlook-graph-mcp-plus"
-version = "0.1.0"
+version = "0.1.1"
 description = "Outlook (Microsoft 365) as a local MCP server via Microsoft Graph: mail, folders, attachments, calendar and To Do, with each organisation's own Entra app registration."
 readme = "README.md"
 license = "MIT"
