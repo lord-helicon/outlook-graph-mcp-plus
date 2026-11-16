@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 — unreleased
+## 0.2.0 — 2026-11-16
 
 ### Added
 - **Shared mailboxes.** Mail and calendar tools take an optional `mailbox` parameter. Only
