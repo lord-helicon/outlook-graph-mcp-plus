@@ -121,9 +121,17 @@ async def resolve_folder(name: str, base: str = "/me") -> str:
 
 
 def address(entry: Any) -> tuple[str, str]:
-    """(address, name) from a Graph recipient/from object."""
+    """(address, name) from a Graph recipient/from object.
+
+    Exchange sometimes stores an internal X.500 address ("/O=EXCHANGELABS/...")
+    instead of SMTP, e.g. in a shared mailbox's own Sent Items; that is no use to a
+    caller, so the address is left empty and the display name kept.
+    """
     ea = (entry or {}).get("emailAddress") or {}
-    return ea.get("address", "") or "", ea.get("name", "") or ""
+    addr = ea.get("address", "") or ""
+    if addr.startswith("/"):
+        addr = ""
+    return addr, ea.get("name", "") or ""
 
 
 def addresses(entries: list | None) -> str:
