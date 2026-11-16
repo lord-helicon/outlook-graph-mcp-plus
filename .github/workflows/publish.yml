@@ -1,0 +1,26 @@
+name: Publish to PyPI
+
+# Manual only. Runs from main, through the protected "main" environment,
+# with PyPI trusted publishing (no API token stored in the repository).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: main
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --group dev
+      - run: uv run pytest -q
+      - run: uv build
+      - uses: pypa/gh-action-pypi-publish@release/v1
