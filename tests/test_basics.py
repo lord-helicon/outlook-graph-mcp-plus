@@ -116,6 +116,14 @@ def test_headers_and_errors():
     h = fg.last()["headers"]
     assert h["authorization"] == "Bearer tok"
     assert 'outlook.timezone="Europe/Berlin"' in h["prefer"]
+    fg.on(
+        "GET",
+        "/x",
+        {"error": {"code": "ErrorInvalidIdMalformed", "message": "Id is malformed."}},
+        status=400,
+    )
+    with pytest.raises(GraphError, match="not valid for this mailbox"):
+        run(c.get("/x"))
     for status, text in ((404, "Not found"), (403, "Access denied"), (401, "rejected the sign-in")):
         fg.on("GET", "/x", {"error": {"code": "E", "message": "m"}}, status=status)
         with pytest.raises(GraphError, match=text):
