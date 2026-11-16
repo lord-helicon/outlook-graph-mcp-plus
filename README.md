@@ -7,7 +7,7 @@ Microsoft 365 Outlook as a **local MCP server** for Claude (Desktop and Code): m
 - Runs **on the user's computer** (macOS, Windows, Linux). Outlook doesn't need to be installed. Tokens stay in the operating system's secret store.
 - Offers the same 28 tools, with the same names, as its sibling project [outlook-desktop-mcp-plus](https://github.com/lord-helicon/outlook-desktop-mcp-plus), which controls a locally installed Outlook instead.
 
-> **Status: alpha (0.1.1).** All 28 tools have been tested against a real Microsoft 365 tenant (including sending, to the tester's own address), plus unit tests against a simulated Microsoft Graph. Shared mailboxes are planned for 0.2.
+> **Status: alpha (0.2.0).** All 28 tools have been tested against a real Microsoft 365 tenant (including sending, to the tester's own address), plus unit tests against a simulated Microsoft Graph. Shared mailboxes are new in 0.2 and were tested live as well.
 
 ---
 
@@ -27,6 +27,7 @@ You do this once per organisation, in the [Microsoft Entra admin center](https:/
    - `Mail.Send`
    - `Calendars.ReadWrite`
    - `Tasks.ReadWrite`
+   - Only if users should work with **shared mailboxes**: also `Mail.ReadWrite.Shared`, `Mail.Send.Shared` and `Calendars.ReadWrite.Shared`.
 
    Then click **Grant admin consent for \<your organisation\>**, so users aren't asked to consent individually.
 4. Note the **Application (client) ID** and the **Directory (tenant) ID** from the *Overview* page and give both to your users. They aren't secret.
@@ -97,12 +98,14 @@ If Claude can't find the command, use the full path shown by `which outlook-grap
 | `OUTLOOK_GRAPH_ATTACHMENT_DIR` | no | The only folder attachments are saved into (default `~/Downloads`) |
 | `OUTLOOK_GRAPH_TIMEZONE` | no | IANA timezone for dates (default: the computer's timezone) |
 | `OUTLOOK_GRAPH_CACHE_DIR` | no | Where the sign-in state is kept (default `~/.outlook-graph-mcp-plus`) |
+| `OUTLOOK_GRAPH_SHARED_MAILBOXES` | no | Shared mailboxes this user may work with, for example `info@contoso.com,support@contoso.com`. Only these are accepted as `mailbox` |
 | `OUTLOOK_GRAPH_ALLOW_PLAINTEXT_TOKEN_CACHE` | no | `true` only if no OS secret store exists (for example a Linux box without libsecret) |
 
 ## Tools
 
 | Area | Tools |
 |---|---|
+| Mailboxes | `list_mailboxes` |
 | Mail | `list_emails`, `read_email`, `search_emails`, `send_email`, `reply_email`, `mark_as_read`, `mark_as_unread`, `move_email`, `list_folders` |
 | Drafts | `save_draft`, `list_drafts`, `read_draft`, `send_draft`, `create_draft_reply` |
 | Attachments | `list_attachments`, `save_attachment` |
@@ -113,6 +116,16 @@ Notes on the tools:
 - **Folders:** standard names work in any Outlook language: `inbox`, `sent`, `drafts`, `deleted`, `junk`, `archive`, `outbox`. Custom folders are given by name. If a name exists more than once, give the path, for example `Inbox/Projects`, or `/Projects` for a top-level folder.
 - **Moving:** `move_email` gives the email a new `entry_id`.
 - **Dates:** inputs take `YYYY-MM-DD`, `YYYY-MM-DD HH:MM` or `DD.MM.YYYY [HH:MM]`. Outputs are ISO 8601 in your timezone.
+
+## Shared mailboxes
+
+Mail and calendar tools take an optional `mailbox` parameter, for example `list_emails(mailbox="info@contoso.com")`. Empty means the user's own mailbox. Here's what it needs and how it behaves:
+
+- **Admin:** the three `.Shared` permissions above, with admin consent.
+- **Exchange:** the user needs *Full Access* to the shared mailbox. Sending from it also needs *Send As*. Microsoft refuses anything the user isn't allowed to do.
+- **Configuration:** list the mailbox in `OUTLOOK_GRAPH_SHARED_MAILBOXES`, for example in `claude mcp add ... -e OUTLOOK_GRAPH_SHARED_MAILBOXES=info@contoso.com`. If the administrator granted admin consent, the shared permissions are picked up automatically. Otherwise run `outlook-graph-mcp-plus auth` once more. Use the mailbox's primary email address as shown in the Exchange admin center. Microsoft Graph can't list which mailboxes a user may open, so they must be named. The list also stops text in an email from steering the model into another mailbox.
+- **Ids:** an `entry_id` only works with the mailbox it came from. `list_mailboxes` tells the model which mailboxes exist.
+- **Tasks:** Microsoft To Do doesn't support shared mailboxes, so the task tools always use the user's own.
 
 ## Security
 

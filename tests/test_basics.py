@@ -132,6 +132,9 @@ def test_headers_and_errors():
     )
     with pytest.raises(GraphError, match="already have been sent"):
         run(c.get("/x"))
+    fg.on("GET", "/x", {"error": {"code": "ErrorInvalidUser", "message": "invalid"}}, status=404)
+    with pytest.raises(GraphError, match="no mailbox with that address"):
+        run(c.get("/x"))
     for status, text in ((404, "Not found"), (403, "Access denied"), (401, "rejected the sign-in")):
         fg.on("GET", "/x", {"error": {"code": "E", "message": "m"}}, status=status)
         with pytest.raises(GraphError, match=text):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from outlook_graph_mcp.app import graph
+from outlook_graph_mcp.app import graph, settings
 from outlook_graph_mcp.graph import GraphError, seg
 
 # Names accepted for Outlook's standard folders -> Graph well-known folder names.
@@ -32,6 +32,27 @@ WELL_KNOWN_FOLDERS = {
 _MAX_FOLDER_DEPTH = 6
 
 
+def mailbox_base(mailbox: str = "") -> str:
+    """Graph path prefix for the signed-in user's mailbox or an allowed shared one.
+
+    Only shared mailboxes listed in OUTLOOK_GRAPH_SHARED_MAILBOXES are accepted.
+    Exchange permissions (Full Access, Send As) are checked by Microsoft anyway; the
+    allowlist also stops text in an email from steering the model to another mailbox.
+    """
+    m = (mailbox or "").strip().lower()
+    if m in ("", "me"):
+        return "/me"
+    allowed = settings().shared_mailboxes
+    if m not in allowed:
+        listed = ", ".join(allowed) if allowed else "none configured"
+        raise GraphError(
+            f"'{mailbox}' is not one of the shared mailboxes this server may use "
+            f"({listed}). Call list_mailboxes; an administrator can add mailboxes "
+            "with OUTLOOK_GRAPH_SHARED_MAILBOXES."
+        )
+    return f"/users/{seg(m)}"
+
+
 async def get_all(path: str, params: dict, limit: int) -> list[dict]:
     """GET a collection, following @odata.nextLink until `limit` items."""
     items: list[dict] = []
@@ -44,7 +65,7 @@ async def get_all(path: str, params: dict, limit: int) -> list[dict]:
         data = await graph().request("GET", nxt)
 
 
-async def folder_tree(max_depth: int) -> list[dict]:
+async def folder_tree(max_depth: int, base: str = "/me") -> list[dict]:
     """All mail folders down to max_depth, each with its path ('Inbox/Projects')."""
     out: list[dict] = []
 
@@ -61,13 +82,13 @@ async def folder_tree(max_depth: int) -> list[dict]:
             full = f"{parent}/{f['displayName']}" if parent else f["displayName"]
             out.append({**f, "path": full, "depth": depth})
             if f.get("childFolderCount") and depth < max_depth:
-                await walk(f"/me/mailFolders/{seg(f['id'])}/childFolders", full, depth + 1)
+                await walk(f"{base}/mailFolders/{seg(f['id'])}/childFolders", full, depth + 1)
 
-    await walk("/me/mailFolders", "", 0)
+    await walk(f"{base}/mailFolders", "", 0)
     return out
 
 
-async def resolve_folder(name: str) -> str:
+async def resolve_folder(name: str, base: str = "/me") -> str:
     """A folder name or path -> a value usable in /me/mailFolders/{value} and as destinationId.
 
     Standard names map to Graph's well-known names (language-independent).
@@ -80,7 +101,7 @@ async def resolve_folder(name: str) -> str:
     well_known = WELL_KNOWN_FOLDERS.get(key.lower())
     if well_known:
         return well_known
-    folders = await folder_tree(_MAX_FOLDER_DEPTH)
+    folders = await folder_tree(_MAX_FOLDER_DEPTH, base)
     wanted = key.strip("/").lower()
     if "/" in key:
         # A path ('Inbox/Projects', or '/Projects' for a top-level folder) is taken literally.

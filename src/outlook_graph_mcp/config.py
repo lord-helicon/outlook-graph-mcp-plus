@@ -18,6 +18,7 @@ ENV_ATTACHMENT_DIR = "OUTLOOK_GRAPH_ATTACHMENT_DIR"
 ENV_TIMEZONE = "OUTLOOK_GRAPH_TIMEZONE"
 ENV_CACHE_DIR = "OUTLOOK_GRAPH_CACHE_DIR"
 ENV_ALLOW_PLAINTEXT = "OUTLOOK_GRAPH_ALLOW_PLAINTEXT_TOKEN_CACHE"
+ENV_SHARED_MAILBOXES = "OUTLOOK_GRAPH_SHARED_MAILBOXES"
 
 # Delegated Microsoft Graph permissions. offline_access is added by MSAL itself.
 SCOPES = [
@@ -27,6 +28,14 @@ SCOPES = [
     "Calendars.ReadWrite",
     "Tasks.ReadWrite",
 ]
+# Requested in addition only when shared mailboxes are configured, so organisations
+# that do not use them need not grant these.
+SHARED_SCOPES = [
+    "Mail.ReadWrite.Shared",
+    "Mail.Send.Shared",
+    "Calendars.ReadWrite.Shared",
+]
+_EMAIL = re.compile(r"[^@\s<>\"';,]+@[^@\s<>\"';,]+\.[^@\s<>\"';,]+")
 
 _GUID = re.compile(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}")
 _DOMAIN = re.compile(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
@@ -44,10 +53,15 @@ class Settings:
     timezone: str
     cache_dir: Path
     allow_plaintext_token_cache: bool
+    shared_mailboxes: tuple[str, ...] = ()
 
     @property
     def authority(self) -> str:
         return f"https://login.microsoftonline.com/{self.tenant_id}"
+
+    @property
+    def scopes(self) -> list[str]:
+        return SCOPES + (SHARED_SCOPES if self.shared_mailboxes else [])
 
 
 def _local_timezone() -> str:
@@ -82,6 +96,14 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
     attachment_dir = Path(env.get(ENV_ATTACHMENT_DIR) or home / "Downloads").expanduser()
     cache_dir = Path(env.get(ENV_CACHE_DIR) or home / ".outlook-graph-mcp-plus").expanduser()
     allow_plain = env.get(ENV_ALLOW_PLAINTEXT, "").strip().lower() in ("1", "true", "yes")
+    shared: list[str] = []
+    for item in re.split(r"[;,\s]+", env.get(ENV_SHARED_MAILBOXES, "")):
+        if not item:
+            continue
+        if not _EMAIL.fullmatch(item):
+            raise ConfigError(f"{ENV_SHARED_MAILBOXES}: '{item}' is not an email address.")
+        if item.lower() not in shared:
+            shared.append(item.lower())
     return Settings(
         client_id=client_id,
         tenant_id=tenant_id,
@@ -89,4 +111,5 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         timezone=(env.get(ENV_TIMEZONE) or "").strip() or _local_timezone(),
         cache_dir=cache_dir,
         allow_plaintext_token_cache=allow_plain,
+        shared_mailboxes=tuple(shared),
     )
