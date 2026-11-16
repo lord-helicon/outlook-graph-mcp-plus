@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 — 2026-11-16
 
 ### Fixed
 - Exchange-internal X.500 sender addresses (`/O=EXCHANGELABS/...`, seen in a shared mailbox's

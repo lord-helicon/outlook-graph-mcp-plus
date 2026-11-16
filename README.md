@@ -7,7 +7,7 @@ Microsoft 365 Outlook as a **local MCP server** for Claude (Desktop and Code): m
 - Runs **on the user's computer** (macOS, Windows, Linux). Outlook doesn't need to be installed. Tokens stay in the operating system's secret store.
 - Offers the same 28 tools, with the same names, as its sibling project [outlook-desktop-mcp-plus](https://github.com/lord-helicon/outlook-desktop-mcp-plus), which controls a locally installed Outlook instead.
 
-> **Status: alpha (0.2.0).** All 28 tools have been tested against a real Microsoft 365 tenant (including sending, to the tester's own address), plus unit tests against a simulated Microsoft Graph. Shared mailboxes are new in 0.2 and were tested live as well.
+> **Status: alpha (0.2.1).** All 29 tools have been tested against a real Microsoft 365 tenant (including sending, to the tester's own address), plus unit tests against a simulated Microsoft Graph. Shared mailboxes are new in 0.2 and were tested live as well.
 
 ---
 
