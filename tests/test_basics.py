@@ -124,10 +124,27 @@ def test_headers_and_errors():
     )
     with pytest.raises(GraphError, match="not valid for this mailbox"):
         run(c.get("/x"))
+    fg.on(
+        "GET",
+        "/x",
+        {"error": {"code": "ErrorAccessDenied", "message": "Access is denied."}},
+        status=403,
+    )
+    with pytest.raises(GraphError, match="already have been sent"):
+        run(c.get("/x"))
     for status, text in ((404, "Not found"), (403, "Access denied"), (401, "rejected the sign-in")):
         fg.on("GET", "/x", {"error": {"code": "E", "message": "m"}}, status=status)
         with pytest.raises(GraphError, match=text):
             run(c.get("/x"))
+
+
+def test_request_urls_are_not_logged():
+    import logging
+
+    import outlook_graph_mcp.graph  # noqa: F401 - sets the levels on import
+
+    assert logging.getLogger("httpx").getEffectiveLevel() >= logging.WARNING
+    assert logging.getLogger("httpcore").getEffectiveLevel() >= logging.WARNING
 
 
 def test_retry_once_on_429(monkeypatch):

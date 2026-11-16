@@ -9,12 +9,18 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 import httpx
+
+# httpx logs every request URL at INFO. URLs carry search terms, filters and ids from
+# the mailbox, and MCP clients keep server stderr in their log files: keep them out.
+for _name in ("httpx", "httpcore"):
+    logging.getLogger(_name).setLevel(logging.WARNING)
 
 GRAPH_ROOT = "https://graph.microsoft.com/v1.0"
 _MAX_RETRY_AFTER = 10.0
@@ -44,6 +50,11 @@ def _friendly(resp: httpx.Response) -> GraphError:
     s = resp.status_code
     if s == 401:
         text = "Microsoft 365 rejected the sign-in. Run `outlook-graph-mcp-plus auth` again."
+    elif s == 403 and code == "ErrorAccessDenied":
+        text = (
+            "Microsoft 365 denied access to this item. It may already have been sent, moved "
+            "or deleted, or your account has no access to it."
+        )
     elif s == 403:
         text = (
             "Access denied by Microsoft 365. The app registration may be missing a "
