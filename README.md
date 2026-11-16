@@ -7,7 +7,7 @@ Microsoft 365 Outlook as a **local MCP server** for Claude (Desktop and Code): m
 - Runs **on the user's computer** (macOS, Windows, Linux). Outlook doesn't need to be installed. Tokens stay in the operating system's secret store.
 - Offers the same 28 tools, with the same names, as its sibling project [outlook-desktop-mcp-plus](https://github.com/lord-helicon/outlook-desktop-mcp-plus), which controls a locally installed Outlook instead.
 
-> **Status: alpha (0.2.0).** All 28 tools have been tested against a real Microsoft 365 tenant (including sending, to the tester's own address), plus unit tests against a simulated Microsoft Graph. Shared mailboxes are new in 0.2 (unit-tested; see the changelog for live-test status).
+> **Status: alpha (0.2.0).** All 28 tools have been tested against a real Microsoft 365 tenant (including sending, to the tester's own address), plus unit tests against a simulated Microsoft Graph. Shared mailboxes are new in 0.2 and were tested live as well.
 
 ---
 
@@ -123,7 +123,7 @@ Mail and calendar tools take an optional `mailbox` parameter, for example `list_
 
 - **Admin:** the three `.Shared` permissions above, with admin consent.
 - **Exchange:** the user needs *Full Access* to the shared mailbox. Sending from it also needs *Send As*. Microsoft refuses anything the user isn't allowed to do.
-- **Configuration:** list the mailbox in `OUTLOOK_GRAPH_SHARED_MAILBOXES`, for example in `claude mcp add ... -e OUTLOOK_GRAPH_SHARED_MAILBOXES=info@contoso.com`. Then run `outlook-graph-mcp-plus auth` once more, so the sign-in includes the shared permissions. Microsoft Graph can't list which mailboxes a user may open, so they must be named. The list also stops text in an email from steering the model into another mailbox.
+- **Configuration:** list the mailbox in `OUTLOOK_GRAPH_SHARED_MAILBOXES`, for example in `claude mcp add ... -e OUTLOOK_GRAPH_SHARED_MAILBOXES=info@contoso.com`. If the administrator granted admin consent, the shared permissions are picked up automatically. Otherwise run `outlook-graph-mcp-plus auth` once more. Use the mailbox's primary email address as shown in the Exchange admin center. Microsoft Graph can't list which mailboxes a user may open, so they must be named. The list also stops text in an email from steering the model into another mailbox.
 - **Ids:** an `entry_id` only works with the mailbox it came from. `list_mailboxes` tells the model which mailboxes exist.
 - **Tasks:** Microsoft To Do doesn't support shared mailboxes, so the task tools always use the user's own.
 

@@ -60,6 +60,11 @@ def _friendly(resp: httpx.Response) -> GraphError:
             "Access denied by Microsoft 365. The app registration may be missing a "
             f"permission, or an admin has to grant consent. ({code or s}: {msg})"
         )
+    elif code == "ErrorInvalidUser":
+        text = (
+            "Microsoft 365 has no mailbox with that address. Use the shared mailbox's primary "
+            "email address exactly as the Exchange admin center shows it."
+        )
     elif code in ("ErrorInvalidIdMalformed", "ErrorInvalidId"):
         text = "The id is not valid for this mailbox. Use an entry_id returned by this server."
     elif s == 404 or code in ("ErrorItemNotFound", "ResourceNotFound"):

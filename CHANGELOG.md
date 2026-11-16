@@ -9,6 +9,11 @@
   own Microsoft To Do.
 - `list_mailboxes` tool: the user's own mailbox plus the configured shared ones.
 - The `.Shared` Graph permissions are requested only when shared mailboxes are configured.
+- Clear error when an address isn't a mailbox (`ErrorInvalidUser`).
+
+Tested live with a shared mailbox: reading (folders, inbox, read, search), drafts, read state,
+moving, and an event in the shared calendar. Sending from a shared mailbox (Send As) was not
+tested live.
 
 ## 0.1.1 — 2026-11-16
 
