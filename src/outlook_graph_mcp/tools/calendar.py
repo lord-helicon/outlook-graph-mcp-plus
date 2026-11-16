@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from outlook_graph_mcp.app import graph, settings, tool
 from outlook_graph_mcp.graph import seg
-from outlook_graph_mcp.tools.common import address, addresses, get_all
+from outlook_graph_mcp.tools.common import address, addresses, get_all, mailbox_base
 from outlook_graph_mcp.util import (
     bad_addresses,
     bad_count,
@@ -73,9 +73,9 @@ def _range(start_date: str, end_date: str, default_back: int, default_ahead: int
     return start, end, None
 
 
-async def _view(start: datetime, end: datetime, limit: int) -> list[dict]:
+async def _view(b: str, start: datetime, end: datetime, limit: int) -> list[dict]:
     return await get_all(
-        "/me/calendarView",
+        f"{b}/calendarView",
         {
             "startDateTime": _utc(start),
             "endDateTime": _utc(end),
@@ -88,28 +88,33 @@ async def _view(start: datetime, end: datetime, limit: int) -> list[dict]:
 
 
 @tool
-async def list_events(start_date: str = "", end_date: str = "", count: int = 20) -> str:
+async def list_events(
+    start_date: str = "", end_date: str = "", count: int = 20, mailbox: str = ""
+) -> str:
     """List calendar events in a date range (recurring events expanded), earliest first.
 
     Args:
         start_date: Start, e.g. "2026-12-01" or "2026-12-01 08:00". Default: now.
         end_date: End (a bare date includes that whole day). Default: 7 days after start.
         count: Maximum events (1-500). Default 20.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
 
     Returns:
         JSON array of {entry_id, subject, start, end, location, organizer, all_day}.
     """
+    b = mailbox_base(mailbox)
     if e := bad_count("count", count, 1, 500):
         return e
     start, end, problem = _range(start_date, end_date, 0, 7)
     if problem:
         return problem
-    return out([_summary(e) for e in await _view(start, end, count)])
+    return out([_summary(e) for e in await _view(b, start, end, count)])
 
 
 @tool
 async def search_events(
-    query: str, start_date: str = "", end_date: str = "", count: int = 10
+    query: str, start_date: str = "", end_date: str = "", count: int = 10, mailbox: str = ""
 ) -> str:
     """Find calendar events whose subject contains `query` in a date range.
 
@@ -118,28 +123,34 @@ async def search_events(
         start_date: Start of the range. Default: 30 days ago.
         end_date: End of the range. Default: 60 days after start.
         count: Maximum results (1-100). Default 10.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
     """
+    b = mailbox_base(mailbox)
     if e := bad_count("count", count, 1, 100):
         return e
     start, end, problem = _range(start_date, end_date, 30, 60)
     if problem:
         return problem
     q = (query or "").strip().lower()
-    events = await _view(start, end, 1000)
+    events = await _view(b, start, end, 1000)
     return out([_summary(e) for e in events if q in (e.get("subject") or "").lower()][:count])
 
 
 @tool
-async def get_event(entry_id: str) -> str:
+async def get_event(entry_id: str, mailbox: str = "") -> str:
     """Read one calendar event in full, including attendees and description.
 
     Args:
         entry_id: The event's entry_id.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
     """
+    b = mailbox_base(mailbox)
     if e := bad_id(entry_id, "event"):
         return e
     ev = await graph().get(
-        f"/me/events/{seg(entry_id.strip())}",
+        f"{b}/events/{seg(entry_id.strip())}",
         **{"$select": _SELECT + ",body,attendees,isOnlineMeeting,onlineMeeting"},
     )
     data = _summary(ev)
@@ -184,6 +195,7 @@ async def create_event(
     body: str = "",
     all_day: bool = False,
     reminder_minutes: int = 15,
+    mailbox: str = "",
 ) -> str:
     """Create a personal calendar appointment (no invitations are sent).
 
@@ -195,7 +207,10 @@ async def create_event(
         body: Optional plain-text description.
         all_day: All-day event. Default false.
         reminder_minutes: Minutes before the start for a reminder; 0 turns it off.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
     """
+    b = mailbox_base(mailbox)
     if e := bad_count("reminder_minutes", reminder_minutes, 0, 40320):
         return e
     s, en, problem = _times(start, end, all_day)
@@ -205,7 +220,7 @@ async def create_event(
     payload["isReminderOn"] = reminder_minutes > 0
     if reminder_minutes > 0:
         payload["reminderMinutesBeforeStart"] = reminder_minutes
-    ev = await graph().request("POST", "/me/events", json=payload)
+    ev = await graph().request("POST", f"{b}/events", json=payload)
     return out({"status": "created", **_summary(ev)})
 
 
@@ -218,6 +233,7 @@ async def create_meeting(
     location: str = "",
     body: str = "",
     optional_attendees: str = "",
+    mailbox: str = "",
 ) -> str:
     """Create a meeting and send invitations to the attendees.
 
@@ -229,7 +245,10 @@ async def create_meeting(
         location: Optional location.
         body: Optional plain-text agenda.
         optional_attendees: Optional addresses separated by ';' or ','.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
     """
+    b = mailbox_base(mailbox)
     if not split_addresses(required_attendees):
         return err("required_attendees needs at least one address.")
     if e := bad_addresses(required_attendees, optional_attendees):
@@ -245,7 +264,7 @@ async def create_meeting(
         {"emailAddress": {"address": a}, "type": "optional"}
         for a in split_addresses(optional_attendees)
     ]
-    ev = await graph().request("POST", "/me/events", json=payload)
+    ev = await graph().request("POST", f"{b}/events", json=payload)
     return out(
         {"status": "invitations_sent", **_summary(ev), "attendees": addresses(ev.get("attendees"))}
     )
@@ -259,6 +278,7 @@ async def update_event(
     end: str = "",
     location: str = "",
     body: str = "",
+    mailbox: str = "",
 ) -> str:
     """Change an event. Only the fields you pass are changed.
 
@@ -269,7 +289,10 @@ async def update_event(
         end: New end.
         location: New location.
         body: New plain-text description.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
     """
+    b = mailbox_base(mailbox)
     if e := bad_id(entry_id, "event"):
         return e
     patch: dict = {}
@@ -294,20 +317,23 @@ async def update_event(
         patch["body"] = {"contentType": "Text", "content": body}
     if not patch:
         return err("Nothing to update: pass at least one field.")
-    ev = await graph().request("PATCH", f"/me/events/{seg(entry_id.strip())}", json=patch)
+    ev = await graph().request("PATCH", f"{b}/events/{seg(entry_id.strip())}", json=patch)
     return out({"status": "updated", **_summary(ev)})
 
 
 @tool
-async def delete_event(entry_id: str) -> str:
+async def delete_event(entry_id: str, mailbox: str = "") -> str:
     """Delete a calendar event.
 
     Args:
         entry_id: The event's entry_id.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
     """
+    b = mailbox_base(mailbox)
     if e := bad_id(entry_id, "event"):
         return e
-    path = f"/me/events/{seg(entry_id.strip())}"
+    path = f"{b}/events/{seg(entry_id.strip())}"
     ev = await graph().get(path, **{"$select": "subject"})
     await graph().request("DELETE", path)
     return out({"status": "deleted", "subject": ev.get("subject", "")})

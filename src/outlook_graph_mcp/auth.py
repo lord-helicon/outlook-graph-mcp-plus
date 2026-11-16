@@ -20,7 +20,7 @@ from pathlib import Path
 import msal
 from msal_extensions import FilePersistence, PersistedTokenCache, build_encrypted_persistence
 
-from outlook_graph_mcp.config import SCOPES, Settings
+from outlook_graph_mcp.config import Settings
 
 
 class AuthError(RuntimeError):
@@ -100,7 +100,7 @@ class TokenProvider:
         account = self._account()
         if account is None:
             raise AuthError(NOT_SIGNED_IN)
-        result = self.app.acquire_token_silent(SCOPES, account=account)
+        result = self.app.acquire_token_silent(self.settings.scopes, account=account)
         if not result or "access_token" not in result:
             raise AuthError(NOT_SIGNED_IN)
         return result["access_token"]
@@ -124,7 +124,7 @@ class TokenProvider:
         if not device_code:
             try:
                 result = self.app.acquire_token_interactive(
-                    SCOPES, prompt="select_account", timeout=300
+                    self.settings.scopes, prompt="select_account", timeout=300
                 )
             except Exception as e:  # noqa: BLE001 - no browser / no display
                 echo(f"Browser sign-in not possible ({type(e).__name__}); using a device code.")
@@ -132,7 +132,7 @@ class TokenProvider:
         if result is None or "access_token" not in result:
             if result is not None and not device_code:
                 echo(f"Browser sign-in failed: {result.get('error_description', result)}")
-            flow = self.app.initiate_device_flow(scopes=SCOPES)
+            flow = self.app.initiate_device_flow(scopes=self.settings.scopes)
             if "user_code" not in flow:
                 raise AuthError(f"Could not start device code sign-in: {flow}")
             echo(flow["message"])

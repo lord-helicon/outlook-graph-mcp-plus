@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0 — unreleased
+
+### Added
+- **Shared mailboxes.** Mail and calendar tools take an optional `mailbox` parameter. Only
+  mailboxes listed in `OUTLOOK_GRAPH_SHARED_MAILBOXES` are accepted. Sending from a shared
+  mailbox sends as that mailbox, which needs *Send As* in Exchange. Tasks stay on the user's
+  own Microsoft To Do.
+- `list_mailboxes` tool: the user's own mailbox plus the configured shared ones.
+- The `.Shared` Graph permissions are requested only when shared mailboxes are configured.
+
 ## 0.1.1 — 2026-11-16
 
 First release on PyPI. All 28 tools were tested against a real Microsoft 365 tenant:

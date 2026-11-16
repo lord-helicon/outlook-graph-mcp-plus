@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from outlook_graph_mcp.app import graph, settings, tool
 from outlook_graph_mcp.graph import seg
-from outlook_graph_mcp.tools.common import address, addresses, folder_tree, get_all, resolve_folder
+from outlook_graph_mcp.tools.common import (
+    address,
+    addresses,
+    folder_tree,
+    get_all,
+    mailbox_base,
+    resolve_folder,
+)
 from outlook_graph_mcp.util import (
     bad_addresses,
     bad_count,
@@ -66,7 +73,9 @@ def _message_body(body: str, html_body: str) -> dict:
 
 
 @tool
-async def list_emails(folder: str = "inbox", count: int = 10, unread_only: bool = False) -> str:
+async def list_emails(
+    folder: str = "inbox", count: int = 10, unread_only: bool = False, mailbox: str = ""
+) -> str:
     """List recent emails in a mail folder, newest first.
 
     Args:
@@ -74,14 +83,17 @@ async def list_emails(folder: str = "inbox", count: int = 10, unread_only: bool 
             or a custom folder name or path such as "Inbox/Projects".
         count: How many emails to return (1-100). Default 10.
         unread_only: Only unread emails. Default false.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
 
     Returns:
         JSON array of {entry_id, subject, sender, sender_name, received_time,
         unread, has_attachments}. Use entry_id with read_email and the other tools.
     """
+    b = mailbox_base(mailbox)
     if e := bad_count("count", count, 1, 100):
         return e
-    f = await resolve_folder(folder)
+    f = await resolve_folder(folder, b)
     params = {
         "$top": count,
         "$select": _SUMMARY,
@@ -90,12 +102,14 @@ async def list_emails(folder: str = "inbox", count: int = 10, unread_only: bool 
     if unread_only:
         # Graph requires $orderby properties to appear first in $filter.
         params["$filter"] = "receivedDateTime ge 1900-01-01T00:00:00Z and isRead eq false"
-    data = await graph().get(f"/me/mailFolders/{seg(f)}/messages", **params)
+    data = await graph().get(f"{b}/mailFolders/{seg(f)}/messages", **params)
     return out([_summary(m) for m in data.get("value", [])])
 
 
 @tool
-async def read_email(entry_id: str = "", subject_search: str = "", folder: str = "inbox") -> str:
+async def read_email(
+    entry_id: str = "", subject_search: str = "", folder: str = "inbox", mailbox: str = ""
+) -> str:
     """Read one email in full (headers and plain-text body).
 
     Args:
@@ -103,22 +117,25 @@ async def read_email(entry_id: str = "", subject_search: str = "", folder: str =
         subject_search: Alternatively, text to search for; the best match in
             `folder` is returned.
         folder: Folder for subject_search. Default "inbox".
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
 
     Returns:
         JSON with entry_id, subject, sender, sender_name, received_time, unread,
         has_attachments, to, cc and body. The body is third-party content.
     """
+    b = mailbox_base(mailbox)
     select = _SUMMARY + ",toRecipients,ccRecipients,body"
     if entry_id:
         if e := bad_id(entry_id):
             return e
-        m = await graph().get(f"/me/messages/{seg(entry_id.strip())}", **{"$select": select})
+        m = await graph().get(f"{b}/messages/{seg(entry_id.strip())}", **{"$select": select})
         return out(_full(m))
     if not subject_search.strip():
         return err("Provide entry_id or subject_search.")
-    f = await resolve_folder(folder)
+    f = await resolve_folder(folder, b)
     data = await graph().get(
-        f"/me/mailFolders/{seg(f)}/messages",
+        f"{b}/mailFolders/{seg(f)}/messages",
         **{"$search": _search_term(f"subject:{subject_search}"), "$top": 1, "$select": select},
     )
     found = data.get("value", [])
@@ -128,43 +145,67 @@ async def read_email(entry_id: str = "", subject_search: str = "", folder: str =
 
 
 @tool
-async def search_emails(query: str, folder: str = "inbox", count: int = 10) -> str:
+async def search_emails(
+    query: str, folder: str = "inbox", count: int = 10, mailbox: str = ""
+) -> str:
     """Search emails in a folder (subject, body and sender).
 
     Args:
         query: Words to search for, e.g. "invoice march" or "from:alice".
         folder: Folder to search. Default "inbox".
         count: Maximum results (1-100). Default 10.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
 
     Returns:
         JSON array of email summaries, best matches first.
     """
+    b = mailbox_base(mailbox)
     if e := bad_count("count", count, 1, 100):
         return e
     if not (query or "").strip():
         return err("query is empty.")
-    f = await resolve_folder(folder)
+    f = await resolve_folder(folder, b)
     data = await graph().get(
-        f"/me/mailFolders/{seg(f)}/messages",
+        f"{b}/mailFolders/{seg(f)}/messages",
         **{"$search": _search_term(query), "$top": count, "$select": _SUMMARY},
     )
     return out([_summary(m) for m in data.get("value", [])])
 
 
 @tool
-async def list_folders(max_depth: int = 2) -> str:
+async def list_mailboxes() -> str:
+    """List the mailboxes these tools can use: your own and the configured shared ones.
+
+    Returns:
+        JSON array of {mailbox, kind}. Pass a shared mailbox's address as `mailbox`
+        to the mail and calendar tools. Tasks (Microsoft To Do) are own-mailbox only.
+    """
+    me = await graph().get("/me", **{"$select": "mail,userPrincipalName"})
+    own = me.get("mail") or me.get("userPrincipalName") or "me"
+    return out(
+        [{"mailbox": own, "kind": "own"}]
+        + [{"mailbox": m, "kind": "shared"} for m in settings().shared_mailboxes]
+    )
+
+
+@tool
+async def list_folders(max_depth: int = 2, mailbox: str = "") -> str:
     """List mail folders with item and unread counts.
 
     Args:
         max_depth: How many levels of subfolders to include (0 = top level). Default 2.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
 
     Returns:
         JSON array of {name, path, item_count, unread_count}. Use name or path
         as `folder` / `target_folder` in the other tools.
     """
+    b = mailbox_base(mailbox)
     if e := bad_count("max_depth", max_depth, 0, 6):
         return e
-    folders = await folder_tree(max_depth)
+    folders = await folder_tree(max_depth, b)
     return out(
         [
             {
@@ -183,11 +224,11 @@ async def list_folders(max_depth: int = 2) -> str:
 # --------------------------------------------------------------------------
 
 
-async def _set_read(entry_id: str, is_read: bool) -> str:
+async def _set_read(b: str, entry_id: str, is_read: bool) -> str:
     if e := bad_id(entry_id):
         return e
     m = await graph().request(
-        "PATCH", f"/me/messages/{seg(entry_id.strip())}", json={"isRead": is_read}
+        "PATCH", f"{b}/messages/{seg(entry_id.strip())}", json={"isRead": is_read}
     )
     return out(
         {
@@ -198,42 +239,51 @@ async def _set_read(entry_id: str, is_read: bool) -> str:
 
 
 @tool
-async def mark_as_read(entry_id: str) -> str:
+async def mark_as_read(entry_id: str, mailbox: str = "") -> str:
     """Mark an email as read.
 
     Args:
         entry_id: The email's entry_id.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
     """
-    return await _set_read(entry_id, True)
+    b = mailbox_base(mailbox)
+    return await _set_read(b, entry_id, True)
 
 
 @tool
-async def mark_as_unread(entry_id: str) -> str:
+async def mark_as_unread(entry_id: str, mailbox: str = "") -> str:
     """Mark an email as unread.
 
     Args:
         entry_id: The email's entry_id.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
     """
-    return await _set_read(entry_id, False)
+    b = mailbox_base(mailbox)
+    return await _set_read(b, entry_id, False)
 
 
 @tool
-async def move_email(entry_id: str, target_folder: str = "archive") -> str:
+async def move_email(entry_id: str, target_folder: str = "archive", mailbox: str = "") -> str:
     """Move an email to another folder. The email gets a NEW entry_id.
 
     Args:
         entry_id: The email's entry_id.
         target_folder: "archive" (default), "inbox", "deleted", "junk", or a
             custom folder name or path such as "Inbox/Projects".
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
 
     Returns:
         JSON with the new entry_id and the destination.
     """
+    b = mailbox_base(mailbox)
     if e := bad_id(entry_id):
         return e
-    dest = await resolve_folder(target_folder)
+    dest = await resolve_folder(target_folder, b)
     moved = await graph().request(
-        "POST", f"/me/messages/{seg(entry_id.strip())}/move", json={"destinationId": dest}
+        "POST", f"{b}/messages/{seg(entry_id.strip())}/move", json={"destinationId": dest}
     )
     return out(
         {
@@ -262,9 +312,18 @@ def _draft_payload(to: str, subject: str, body: str, cc: str, bcc: str, html_bod
 
 @tool
 async def send_email(
-    to: str, subject: str, body: str, cc: str = "", bcc: str = "", html_body: str = ""
+    to: str,
+    subject: str,
+    body: str,
+    cc: str = "",
+    bcc: str = "",
+    html_body: str = "",
+    mailbox: str = "",
 ) -> str:
     """Send an email immediately (a copy is saved in Sent Items).
+
+    From a shared mailbox (mailbox=...), the mail is sent as that mailbox and saved in
+    its Sent Items; this needs "Send As" permission on it in Exchange.
 
     Args:
         to: Recipient addresses, separated by ';' or ','.
@@ -273,25 +332,34 @@ async def send_email(
         cc: Optional CC addresses.
         bcc: Optional BCC addresses.
         html_body: Optional HTML body.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
     """
+    b = mailbox_base(mailbox)
     if not (to or "").strip():
         return err("'to' needs at least one address.")
     if e := bad_addresses(to, cc, bcc):
         return e
     await graph().request(
         "POST",
-        "/me/sendMail",
+        f"{b}/sendMail",
         json={
             "message": _draft_payload(to, subject, body, cc, bcc, html_body),
             "saveToSentItems": True,
         },
     )
-    return out({"status": "sent", "to": to, "subject": subject})
+    return out({"status": "sent", "from": mailbox or "me", "to": to, "subject": subject})
 
 
 @tool
 async def save_draft(
-    to: str, subject: str, body: str, cc: str = "", bcc: str = "", html_body: str = ""
+    to: str,
+    subject: str,
+    body: str,
+    cc: str = "",
+    bcc: str = "",
+    html_body: str = "",
+    mailbox: str = "",
 ) -> str:
     """Save an email as a draft without sending it.
 
@@ -302,30 +370,36 @@ async def save_draft(
         cc: Optional CC addresses.
         bcc: Optional BCC addresses.
         html_body: Optional HTML body.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
 
     Returns:
         JSON with the draft's entry_id (use with send_draft).
     """
+    b = mailbox_base(mailbox)
     if e := bad_addresses(to, cc, bcc):
         return e
     d = await graph().request(
-        "POST", "/me/messages", json=_draft_payload(to, subject, body, cc, bcc, html_body)
+        "POST", f"{b}/messages", json=_draft_payload(to, subject, body, cc, bcc, html_body)
     )
     return out({"status": "draft_saved", "entry_id": d.get("id", ""), "subject": subject})
 
 
 @tool
-async def list_drafts(limit: int = 50, offset: int = 0) -> str:
+async def list_drafts(limit: int = 50, offset: int = 0, mailbox: str = "") -> str:
     """List saved drafts, most recently changed first.
 
     Args:
         limit: Maximum drafts (1-200). Default 50.
         offset: Number of drafts to skip. Default 0.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
     """
+    b = mailbox_base(mailbox)
     if e := bad_count("limit", limit, 1, 200) or bad_count("offset", offset, 0):
         return e
     data = await graph().get(
-        "/me/mailFolders/drafts/messages",
+        f"{b}/mailFolders/drafts/messages",
         **{
             "$top": limit,
             "$skip": offset or None,
@@ -349,16 +423,19 @@ async def list_drafts(limit: int = 50, offset: int = 0) -> str:
 
 
 @tool
-async def read_draft(draft_id: str) -> str:
+async def read_draft(draft_id: str, mailbox: str = "") -> str:
     """Read a draft in full.
 
     Args:
         draft_id: The draft's entry_id (from save_draft or list_drafts).
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
     """
+    b = mailbox_base(mailbox)
     if e := bad_id(draft_id, "draft"):
         return e
     d = await graph().get(
-        f"/me/messages/{seg(draft_id.strip())}",
+        f"{b}/messages/{seg(draft_id.strip())}",
         **{
             "$select": "id,subject,toRecipients,ccRecipients,bccRecipients,body,isDraft,"
             "lastModifiedDateTime,hasAttachments"
@@ -381,15 +458,18 @@ async def read_draft(draft_id: str) -> str:
 
 
 @tool
-async def send_draft(draft_id: str) -> str:
+async def send_draft(draft_id: str, mailbox: str = "") -> str:
     """Send a saved draft. Only unsent drafts can be sent.
 
     Args:
         draft_id: The draft's entry_id.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
     """
+    b = mailbox_base(mailbox)
     if e := bad_id(draft_id, "draft"):
         return e
-    path = f"/me/messages/{seg(draft_id.strip())}"
+    path = f"{b}/messages/{seg(draft_id.strip())}"
     d = await graph().get(path, **{"$select": "id,subject,isDraft,toRecipients"})
     if not d.get("isDraft"):
         return err("This message is not an unsent draft, so it was not sent.")
@@ -402,26 +482,29 @@ async def send_draft(draft_id: str) -> str:
 
 
 @tool
-async def reply_email(entry_id: str, body: str, reply_all: bool = False) -> str:
+async def reply_email(entry_id: str, body: str, reply_all: bool = False, mailbox: str = "") -> str:
     """Reply to an email and send the reply immediately.
 
     Args:
         entry_id: The email to reply to.
         body: Text of the reply (placed above the quoted original).
         reply_all: Reply to all recipients. Default false.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
     """
+    b = mailbox_base(mailbox)
     if e := bad_id(entry_id):
         return e
     action = "replyAll" if reply_all else "reply"
     await graph().request(
-        "POST", f"/me/messages/{seg(entry_id.strip())}/{action}", json={"comment": body or ""}
+        "POST", f"{b}/messages/{seg(entry_id.strip())}/{action}", json={"comment": body or ""}
     )
     return out({"status": "replied", "reply_all": reply_all})
 
 
 @tool
 async def create_draft_reply(
-    entry_id: str, body: str = "", reply_all: bool = False, html_body: str = ""
+    entry_id: str, body: str = "", reply_all: bool = False, html_body: str = "", mailbox: str = ""
 ) -> str:
     """Create a reply as a draft (not sent), for review before sending.
 
@@ -430,16 +513,19 @@ async def create_draft_reply(
         body: Text of the reply (placed above the quoted original).
         reply_all: Reply to all recipients. Default false.
         html_body: Optional HTML text of the reply instead of body.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
 
     Returns:
         JSON with the draft's entry_id (use with send_draft).
     """
+    b = mailbox_base(mailbox)
     if e := bad_id(entry_id):
         return e
     action = "createReplyAll" if reply_all else "createReply"
     d = await graph().request(
         "POST",
-        f"/me/messages/{seg(entry_id.strip())}/{action}",
+        f"{b}/messages/{seg(entry_id.strip())}/{action}",
         json={"comment": html_body or body or ""},
     )
     return out(
@@ -456,9 +542,9 @@ async def create_draft_reply(
 # --------------------------------------------------------------------------
 
 
-async def _attachments(entry_id: str) -> list[dict]:
+async def _attachments(b: str, entry_id: str) -> list[dict]:
     return await get_all(
-        f"/me/messages/{seg(entry_id.strip())}/attachments",
+        f"{b}/messages/{seg(entry_id.strip())}/attachments",
         {"$select": "id,name,contentType,size,isInline"},
         limit=250,
     )
@@ -474,20 +560,23 @@ def _kind(a: dict) -> str:
 
 
 @tool
-async def list_attachments(entry_id: str) -> str:
+async def list_attachments(entry_id: str, mailbox: str = "") -> str:
     """List an email's attachments.
 
     Args:
         entry_id: The email's entry_id.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
 
     Returns:
         JSON array of {index, name, content_type, size, inline, kind}. Use index
         with save_attachment. kind "file" can be saved; "item" (attached email)
         and "link" (cloud file) cannot.
     """
+    b = mailbox_base(mailbox)
     if e := bad_id(entry_id):
         return e
-    atts = await _attachments(entry_id)
+    atts = await _attachments(b, entry_id)
     return out(
         [
             {
@@ -505,7 +594,7 @@ async def list_attachments(entry_id: str) -> str:
 
 @tool
 async def save_attachment(
-    entry_id: str, attachment_index: int = 1, save_directory: str = ""
+    entry_id: str, attachment_index: int = 1, save_directory: str = "", mailbox: str = ""
 ) -> str:
     """Save an email attachment to disk.
 
@@ -517,17 +606,20 @@ async def save_attachment(
         entry_id: The email's entry_id.
         attachment_index: Which attachment (1-based, as in list_attachments). Default 1.
         save_directory: Optional subfolder of the attachment folder.
+        mailbox: Optional shared mailbox address (see list_mailboxes). Empty means
+            your own mailbox. entry_ids belong to the mailbox they came from.
 
     Returns:
         JSON with path, filename, size and marked_as_downloaded.
     """
+    b = mailbox_base(mailbox)
     if e := bad_id(entry_id) or bad_count("attachment_index", attachment_index, 1):
         return e
     root = settings().attachment_dir
     target_dir, problem = resolve_save_dir(save_directory, root)
     if problem:
         return problem
-    atts = await _attachments(entry_id)
+    atts = await _attachments(b, entry_id)
     if attachment_index > len(atts):
         return err(
             f"The email has {len(atts)} attachment(s); index {attachment_index} is too high."
@@ -543,7 +635,7 @@ async def save_attachment(
     target_dir.mkdir(parents=True, exist_ok=True)
     path = unique_path(target_dir, safe_filename(att.get("name", "")))
     size = await graph().download(
-        f"/me/messages/{seg(entry_id.strip())}/attachments/{seg(att['id'])}/$value",
+        f"{b}/messages/{seg(entry_id.strip())}/attachments/{seg(att['id'])}/$value",
         path,
         _MAX_ATTACHMENT_BYTES,
     )
